@@ -594,8 +594,7 @@
     </h1>
     <div class="hero-sub" id="hero-sub">Mi álbum · Canadá · México · USA</div>
     <div id="view-mode-banner" style="display:none; margin-top: 12px; padding: 10px 14px; background: rgba(255,209,0,0.15); border: 1px solid rgba(255,209,0,0.4); border-radius: 10px; font-size: 12px; color: var(--c-yellow); font-weight: 600;">
-      👀 Modo visión · Estás viendo el álbum de un amigo
-      <button onclick="exitViewMode()" style="margin-left: 8px; background: var(--c-yellow); color: #1a1300; border: none; padding: 4px 10px; border-radius: 6px; font-weight: 700; cursor: pointer; font-family: inherit; font-size: 11px;">Volver al mío</button>
+      <span id="banner-text">👀 Modo visión · Solo lectura</span>
     </div>
   </div>
 </header>
@@ -642,7 +641,8 @@
 <div id="sections"></div>
 
 <div class="actions" id="owner-actions">
-  <button class="btn primary" onclick="shareAlbum()">🔗 Compartir álbum</button>
+  <button class="btn primary" onclick="publishAlbum()" style="background: var(--c-pink); border-color: var(--c-pink); color: white;">📢 Publicar para amigos</button>
+  <button class="btn" onclick="shareAlbum()">🔗 Compartir link directo</button>
   <button class="btn" onclick="exportList('repes')">📤 Lista de repes</button>
   <button class="btn" onclick="exportList('falta')">📋 Lista de faltantes</button>
   <button class="btn" onclick="exportData()">💾 Backup</button>
@@ -795,8 +795,23 @@ function decodeState(str) {
 }
 
 // Detectar si hay URL compartida
+// ============================================================
+// ÁLBUM PUBLICADO (lo que ven los amigos)
+// Para actualizarlo: usa el botón "Publicar" y pega el código aquí abajo
+// ============================================================
+const PUBLISHED_ALBUM = ""; // ← pegar aquí el código publicado
+
+// ============================================================
+// MODO DE EJECUCIÓN
+// - #admin → modo edición (solo tú)
+// - #share=... → modo visión con un álbum específico (snapshot temporal)
+// - sin nada → modo visión con el álbum publicado (lo que ven los amigos)
+// ============================================================
 const urlHash = window.location.hash;
+const isAdmin = urlHash === '#admin';
+
 if (urlHash.startsWith('#share=')) {
+  // Snapshot compartido por link (modo visión)
   try {
     const shared = decodeState(decodeURIComponent(urlHash.substring(7)));
     state = shared;
@@ -804,13 +819,25 @@ if (urlHash.startsWith('#share=')) {
   } catch(e) {
     console.error('Error al decodificar álbum compartido', e);
   }
-}
-
-if (!viewMode) {
+} else if (isAdmin) {
+  // Modo edición: cargar desde localStorage
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) state = JSON.parse(saved);
   } catch(e) { state = {}; }
+} else {
+  // Default: modo visión con el álbum publicado
+  if (PUBLISHED_ALBUM) {
+    try {
+      state = decodeState(PUBLISHED_ALBUM);
+      viewMode = true;
+    } catch(e) {
+      console.error('Error al cargar álbum publicado', e);
+    }
+  } else {
+    // No hay álbum publicado todavía → mostrar mensaje
+    viewMode = true;
+  }
 }
 
 function saveState() {
@@ -1176,6 +1203,32 @@ window.shareAlbum = function() {
   showModal('🔗 Compartir álbum', msg);
 };
 
+window.publishAlbum = function() {
+  const encoded = encodeState(state);
+
+  let tengo = 0, total = 0;
+  SECTIONS.forEach(sec => sec.cromos.forEach(c => {
+    total++;
+    const s = getStatus(c.code);
+    if (s.status === 'tengo' || s.status === 'repe') tengo++;
+  }));
+
+  const instructions =
+    `📋 INSTRUCCIONES PARA PUBLICAR:\n\n` +
+    `1. Copia el código de abajo (botón Copiar).\n` +
+    `2. Ve a tu repositorio en GitHub.\n` +
+    `3. Abre el archivo index.html → ícono lápiz "Edit".\n` +
+    `4. Busca (Ctrl+F): PUBLISHED_ALBUM = ""\n` +
+    `5. Pega tu código DENTRO de las comillas:\n` +
+    `   const PUBLISHED_ALBUM = "AQUI_PEGAS";\n` +
+    `6. Abajo dale "Commit changes".\n` +
+    `7. Espera 1-2 min y refresca tu URL pública.\n\n` +
+    `Estado actual: ${tengo}/${total} cromos\n\n` +
+    `═══ CÓDIGO A COPIAR ═══\n${encoded}`;
+
+  showModal('📢 Publicar álbum', instructions);
+};
+
 window.exitViewMode = function() {
   // Quitar el hash y recargar
   window.location.hash = '';
@@ -1184,8 +1237,22 @@ window.exitViewMode = function() {
 
 // Aplicar UI de modo visión si está activo
 if (viewMode) {
-  document.getElementById('hero-eyebrow').textContent = '👀 MODO VISIÓN · Solo lectura';
-  document.getElementById('hero-sub').textContent = 'Álbum compartido por un amigo';
+  // Distinguir si es álbum publicado o un share por link
+  const isSnapshot = urlHash.startsWith('#share=');
+  const bannerEl = document.getElementById('banner-text');
+  if (isSnapshot) {
+    document.getElementById('hero-eyebrow').textContent = '👀 MODO VISIÓN · Snapshot compartido';
+    document.getElementById('hero-sub').textContent = 'Estás viendo una versión específica del álbum';
+    if (bannerEl) bannerEl.textContent = '👀 Modo visión · Versión snapshot, solo lectura';
+  } else if (PUBLISHED_ALBUM) {
+    document.getElementById('hero-eyebrow').textContent = '👀 ÁLBUM DE SANTIAGO · Solo lectura';
+    document.getElementById('hero-sub').textContent = 'Mira lo que tengo, me falta y mis repetidas';
+    if (bannerEl) bannerEl.textContent = '👀 Solo lectura · Navega las pestañas y usa el buscador';
+  } else {
+    document.getElementById('hero-eyebrow').textContent = '⏳ ÁLBUM AÚN NO PUBLICADO';
+    document.getElementById('hero-sub').textContent = 'Santiago aún no ha publicado su progreso';
+    if (bannerEl) bannerEl.textContent = '⏳ El dueño aún no ha publicado su álbum';
+  }
   document.getElementById('view-mode-banner').style.display = 'block';
   document.getElementById('owner-actions').style.display = 'none';
 }
